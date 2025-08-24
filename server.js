@@ -10,9 +10,6 @@ app.use(express.json());
 const N8N_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwM2ZmY2JlYS03NzJhLTRkMDktOWRjNS0wYzMxNWE3MTc0ZTIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzU2MDM3NDcyfQ.RqYzXr-Ac5sHuieMfUGd9AYkGT4M63aWxGleKLIFxVY';
 const N8N_HOST = 'https://leadgeneration.app.n8n.cloud';
 
-// Store active connections
-const connections = new Set();
-
 // OAuth endpoints
 app.get('/authorize', (req, res) => {
   const redirectUri = req.query.redirect_uri || 'https://claude.ai';
@@ -27,48 +24,103 @@ app.post('/token', (req, res) => {
   });
 });
 
-// SSE endpoint with proper MCP protocol
+// MCP Protocol Implementation
+app.post('/mcp', async (req, res) => {
+  console.log('MCP request received:', req.body);
+  
+  const { method, params } = req.body;
+  
+  try {
+    if (method === 'initialize') {
+      res.json({
+        protocolVersion: '1.0',
+        serverInfo: {
+          name: 'n8n-mcp-server',
+          version: '1.0.0'
+        },
+        capabilities: {
+          tools: true,
+          prompts: false
+        }
+      });
+    } else if (method === 'tools/list') {
+      res.json({
+        tools: [
+          {
+            name: 'list_workflows',
+            description: 'List all n8n workflows',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'create_workflow',
+            description: 'Create a new n8n workflow',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                nodes: { type: 'array' },
+                connections: { type: 'object' }
+              }
+            }
+          }
+        ]
+      });
+    } else if (method === 'tools/call') {
+      const { name, arguments: args } = params;
+      
+      if (name === 'list_workflows') {
+        const response = await axios.get(`${N8N_HOST}/api/v1/workflows`, {
+          headers: { 'X-N8N-API-KEY': N8N_API_KEY }
+        });
+        res.json({ result: response.data });
+      } else if (name === 'create_workflow') {
+        const response = await axios.post(
+          `${N8N_HOST}/api/v1/workflows`,
+          args,
+          { headers: { 'X-N8N-API-KEY': N8N_API_KEY } }
+        );
+        res.json({ result: response.data });
+      } else {
+        res.json({ error: 'Unknown tool' });
+      }
+    } else {
+      res.json({ error: 'Unknown method' });
+    }
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
+// SSE endpoint for MCP
 app.get('/sse', (req, res) => {
-  // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
   
-  // Add to connections
-  connections.add(res);
+  // Send MCP initialization
+  res.write('data: {"jsonrpc":"2.0","method":"initialized","params":{}}\n\n');
   
-  // Send initial connection message
-  res.write('event: open\n');
-  res.write('data: {"type":"connection","status":"connected"}\n\n');
-  
-  // Send capabilities
-  res.write('event: capability\n');
-  res.write(`data: {"api_endpoint":"${N8N_HOST}"}\n\n`);
-  
-  // Keep alive with ping every 30 seconds
-  const pingInterval = setInterval(() => {
-    res.write('event: ping\n');
-    res.write('data: {"type":"ping"}\n\n');
+  // Keep alive
+  const interval = setInterval(() => {
+    res.write(': keep-alive\n\n');
   }, 30000);
   
-  // Handle client disconnect
   req.on('close', () => {
-    clearInterval(pingInterval);
-    connections.delete(res);
+    clearInterval(interval);
   });
 });
 
-// n8n API proxy
+// API Proxy (fallback)
 app.all('/api/*', async (req, res) => {
   try {
     const path = req.path.replace('/api', '');
     const response = await axios({
       method: req.method,
       url: `${N8N_HOST}/api/v1${path}`,
-      headers: {
-        'X-N8N-API-KEY': N8N_API_KEY
-      },
+      headers: { 'X-N8N-API-KEY': N8N_API_KEY },
       data: req.body
     });
     res.json(response.data);
@@ -77,24 +129,16 @@ app.all('/api/*', async (req, res) => {
   }
 });
 
-// Status endpoint
-app.get('/status', (req, res) => {
-  res.json({
-    status: 'connected',
-    active_connections: connections.size
-  });
-});
-
-// Health check
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    status: 'running', 
-    endpoints: ['/sse', '/api/*', '/authorize', '/token', '/status'],
-    connections: connections.size
+    status: 'running',
+    endpoints: ['/sse', '/mcp', '/api/*', '/authorize', '/token'],
+    mcp: 'ready'
   });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`MCP Server running on port ${PORT}`);
 });
