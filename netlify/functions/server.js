@@ -1,94 +1,61 @@
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': '*'
+    'Access-Control-Allow-Methods': '*',
+    'Access-Control-Allow-Headers': '*'
   };
 
-  // Log for debugging
-  console.log('Path:', event.path);
-  console.log('Method:', event.httpMethod);
-
-  // Handle CORS preflight
+  // Handle OPTIONS
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
+    return { statusCode: 204, headers, body: '' };
   }
 
-  // Remove the Netlify function path prefix if present
-  const path = event.path.replace('/.netlify/functions/server', '');
-
-  // OAuth authorize endpoint
-  if (path === '/authorize' || path.includes('/authorize')) {
-    const { redirect_uri, state } = event.queryStringParameters || {};
-    
-    if (redirect_uri) {
-      // Immediately redirect back with a code
-      const code = 'netlify_' + Date.now();
-      const redirectUrl = state 
-        ? `${redirect_uri}?code=${code}&state=${state}`
-        : `${redirect_uri}?code=${code}`;
+  // Handle OAuth authorize - Claude needs this
+  if (event.path.includes('authorize')) {
+    const params = event.queryStringParameters || {};
+    if (params.redirect_uri) {
+      const redirectUrl = params.redirect_uri + 
+        (params.redirect_uri.includes('?') ? '&' : '?') + 
+        'code=auth_success' +
+        (params.state ? '&state=' + params.state : '');
       
       return {
         statusCode: 302,
-        headers: {
-          'Location': redirectUrl
-        },
+        headers: { Location: redirectUrl },
         body: ''
       };
     }
-    
-    return {
-      statusCode: 200,
-      headers: { ...headers, 'Content-Type': 'text/html' },
-      body: '<html><body><h1>Authorized</h1></body></html>'
-    };
   }
 
-  // OAuth token endpoint
-  if (path === '/token' || path.includes('/token')) {
+  // Handle token exchange - Claude needs this
+  if (event.path.includes('token')) {
     return {
       statusCode: 200,
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        access_token: 'netlify_token_' + Date.now(),
-        token_type: 'Bearer',
-        expires_in: 3600
+        access_token: 'token_' + Date.now(),
+        token_type: 'Bearer'
       })
     };
   }
 
   // SSE endpoint
-  if (path === '/sse' || path.includes('/sse')) {
+  if (event.path.includes('sse')) {
     return {
       statusCode: 200,
-      headers: {
+      headers: { 
         ...headers,
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no'
+        'Cache-Control': 'no-cache'
       },
-      body: `data: ${JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'connection.ready',
-        params: {
-          protocolVersion: '0.1.0',
-          capabilities: {
-            tools: ['workflow_create', 'workflow_list']
-          }
-        }
-      })}\n\n`
+      body: 'data: {"connected": true}\n\n'
     };
   }
 
-  // Root endpoint
+  // Default
   return {
     statusCode: 200,
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      status: 'MCP Server Running',
-      endpoints: ['/authorize', '/token', '/sse'],
-      timestamp: new Date().toISOString()
-    })
+    body: JSON.stringify({ status: 'ready' })
   };
 };
