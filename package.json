@@ -1,5 +1,5 @@
 {
-  "name": "n8n-claude-bridge",
+  "name": "n8n-mcp-server",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
