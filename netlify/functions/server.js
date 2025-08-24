@@ -10,15 +10,15 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers, body: '' };
   }
 
-  // Handle OAuth authorize - Claude needs this
-  if (event.path.includes('authorize')) {
+  // Remove Netlify function prefix from path
+  const path = event.path.replace('/.netlify/functions/server', '');
+
+  // CRITICAL: Handle /authorize endpoint - THIS IS WHAT FIXED IT BEFORE
+  if (path === '/authorize' || event.path.includes('/authorize')) {
     const params = event.queryStringParameters || {};
     if (params.redirect_uri) {
-      const redirectUrl = params.redirect_uri + 
-        (params.redirect_uri.includes('?') ? '&' : '?') + 
-        'code=auth_success' +
-        (params.state ? '&state=' + params.state : '');
-      
+      // This is the exact pattern that worked on Vercel
+      const redirectUrl = `${params.redirect_uri}?code=authorized&state=${params.state || ''}`;
       return {
         statusCode: 302,
         headers: { Location: redirectUrl },
@@ -27,35 +27,40 @@ exports.handler = async (event) => {
     }
   }
 
-  // Handle token exchange - Claude needs this
-  if (event.path.includes('token')) {
+  // Handle /token endpoint - ALSO NEEDED
+  if (path === '/token' || event.path.includes('/token')) {
     return {
       statusCode: 200,
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        access_token: 'token_' + Date.now(),
-        token_type: 'Bearer'
+        access_token: 'connected',
+        token_type: 'Bearer',
+        expires_in: 3600
       })
     };
   }
 
-  // SSE endpoint
-  if (event.path.includes('sse')) {
+  // SSE endpoint - Keep it simple like before
+  if (path === '/sse' || event.path.includes('/sse')) {
     return {
       statusCode: 200,
       headers: { 
         ...headers,
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
       },
-      body: 'data: {"connected": true}\n\n'
+      body: 'data: {"type":"connection","status":"connected"}\n\n'
     };
   }
 
-  // Default
+  // Default response showing all endpoints
   return {
     statusCode: 200,
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'ready' })
+    body: JSON.stringify({ 
+      status: 'running',
+      endpoints: ['/authorize', '/token', '/sse']
+    })
   };
 };
