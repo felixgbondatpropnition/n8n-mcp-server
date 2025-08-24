@@ -10,6 +10,23 @@ app.use(express.json());
 const N8N_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwM2ZmY2JlYS03NzJhLTRkMDktOWRjNS0wYzMxNWE3MTc0ZTIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzU2MDM3NDcyfQ.RqYzXr-Ac5sHuieMfUGd9AYkGT4M63aWxGleKLIFxVY';
 const N8N_HOST = 'https://leadgeneration.app.n8n.cloud';
 
+// Handle OAuth authorize endpoint that Claude expects
+app.get('/authorize', (req, res) => {
+  // Just redirect back with a success code
+  const redirectUri = req.query.redirect_uri || 'https://claude.ai';
+  res.redirect(`${redirectUri}?code=authorized&state=${req.query.state || ''}`);
+});
+
+// Handle OAuth token endpoint
+app.post('/token', (req, res) => {
+  // Return a dummy token
+  res.json({
+    access_token: 'connected',
+    token_type: 'Bearer',
+    expires_in: 3600
+  });
+});
+
 // SSE endpoint for Claude
 app.get('/sse', (req, res) => {
   res.writeHead(200, {
@@ -50,7 +67,7 @@ app.all('/api/*', async (req, res) => {
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'running', endpoints: ['/sse', '/api/*'] });
+  res.json({ status: 'running', endpoints: ['/sse', '/api/*', '/authorize', '/token'] });
 });
 
 const PORT = process.env.PORT || 3000;
