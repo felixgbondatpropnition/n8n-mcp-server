@@ -6,20 +6,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Your n8n credentials - hardcoded for simplicity
+// Your n8n credentials
 const N8N_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwM2ZmY2JlYS03NzJhLTRkMDktOWRjNS0wYzMxNWE3MTc0ZTIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzU2MDM3NDcyfQ.RqYzXr-Ac5sHuieMfUGd9AYkGT4M63aWxGleKLIFxVY';
 const N8N_HOST = 'https://leadgeneration.app.n8n.cloud';
 
-// Handle OAuth authorize endpoint that Claude expects
+// Store active connections
+const connections = new Set();
+
+// OAuth endpoints
 app.get('/authorize', (req, res) => {
-  // Just redirect back with a success code
   const redirectUri = req.query.redirect_uri || 'https://claude.ai';
   res.redirect(`${redirectUri}?code=authorized&state=${req.query.state || ''}`);
 });
 
-// Handle OAuth token endpoint
 app.post('/token', (req, res) => {
-  // Return a dummy token
   res.json({
     access_token: 'connected',
     token_type: 'Bearer',
@@ -27,27 +27,39 @@ app.post('/token', (req, res) => {
   });
 });
 
-// SSE endpoint for Claude
+// SSE endpoint with proper MCP protocol
 app.get('/sse', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   
-  res.write('data: ready\n\n');
+  // Add to connections
+  connections.add(res);
   
-  // Keep connection alive
-  const interval = setInterval(() => {
-    res.write(': keepalive\n\n');
+  // Send initial connection message
+  res.write('event: open\n');
+  res.write('data: {"type":"connection","status":"connected"}\n\n');
+  
+  // Send capabilities
+  res.write('event: capability\n');
+  res.write(`data: {"api_endpoint":"${N8N_HOST}"}\n\n`);
+  
+  // Keep alive with ping every 30 seconds
+  const pingInterval = setInterval(() => {
+    res.write('event: ping\n');
+    res.write('data: {"type":"ping"}\n\n');
   }, 30000);
   
+  // Handle client disconnect
   req.on('close', () => {
-    clearInterval(interval);
+    clearInterval(pingInterval);
+    connections.delete(res);
   });
 });
 
-// Proxy to n8n API
+// n8n API proxy
 app.all('/api/*', async (req, res) => {
   try {
     const path = req.path.replace('/api', '');
@@ -65,9 +77,21 @@ app.all('/api/*', async (req, res) => {
   }
 });
 
+// Status endpoint
+app.get('/status', (req, res) => {
+  res.json({
+    status: 'connected',
+    active_connections: connections.size
+  });
+});
+
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'running', endpoints: ['/sse', '/api/*', '/authorize', '/token'] });
+  res.json({ 
+    status: 'running', 
+    endpoints: ['/sse', '/api/*', '/authorize', '/token', '/status'],
+    connections: connections.size
+  });
 });
 
 const PORT = process.env.PORT || 3000;
