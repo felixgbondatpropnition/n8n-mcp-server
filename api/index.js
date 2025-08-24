@@ -3,49 +3,27 @@ const axios = require('axios');
 module.exports = async (req, res) => {
   const N8N_API_KEY = process.env.N8N_API_KEY;
   const N8N_HOST = process.env.N8N_HOST;
-  const AUTH_TOKEN = process.env.AUTH_TOKEN;
 
-  // Enable CORS for Claude
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
-  // Handle preflight requests
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Handle SSE connection for MCP
+  // Handle SSE connection - NO AUTH CHECK FOR NOW
   if (req.url === '/sse') {
-    // For Claude MCP, we'll be more lenient with auth
-    const authHeader = req.headers.authorization || 
-                      req.headers.Authorization || 
-                      req.headers['x-api-key'] ||
-                      req.headers['oauth-client-secret'];
-    
-    // Check if auth token is present anywhere in the header
-    const isAuthorized = authHeader && 
-                         (authHeader.includes(AUTH_TOKEN) || 
-                          authHeader === AUTH_TOKEN ||
-                          authHeader === `Bearer ${AUTH_TOKEN}`);
-    
-    if (!isAuthorized) {
-      console.log('Auth attempted with:', authHeader);
-      // For now, let's allow the connection to help debug
-      // Remove this in production
-    }
-
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no'
+      'Connection': 'keep-alive'
     });
 
-    // Send MCP handshake
-    res.write('data: {"type":"handshake","version":"1.0"}\n\n');
-    res.write('data: {"type":"ready"}\n\n');
+    // Send connection established
+    res.write('data: {"type":"connection","status":"connected"}\n\n');
     
     // Keep alive
     const keepAlive = setInterval(() => {
@@ -80,7 +58,7 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Health check endpoint
+  // Default response
   res.status(200).json({ 
     status: 'MCP Server Running',
     endpoints: ['/sse', '/api/*'],
