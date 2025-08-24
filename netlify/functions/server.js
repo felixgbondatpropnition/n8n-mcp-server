@@ -1,38 +1,61 @@
+const axios = require('axios');
+
 exports.handler = async (event, context) => {
-  const { httpMethod, path, body, headers } = event;
+  // Your n8n credentials
+  const N8N_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwM2ZmY2JlYS03NzJhLTRkMDktOWRjNS0wYzMxNWE3MTc0ZTIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzU2MDM3NDcyfQ.RqYzXr-Ac5sHuieMfUGd9AYkGT4M63aWxGleKLIFxVY';
+  const N8N_HOST = 'https://leadgeneration.app.n8n.cloud';
   
-  // Parse the request
-  const request = body ? JSON.parse(body) : {};
+  const { action, data } = JSON.parse(event.body || '{}');
   
-  // Handle different commands from Claude
-  if (request.action === 'create_workflow') {
+  try {
+    // List all workflows
+    if (action === 'list_workflows') {
+      const response = await axios.get(`${N8N_HOST}/api/v1/workflows`, {
+        headers: { 'X-N8N-API-KEY': N8N_API_KEY }
+      });
+      return {
+        statusCode: 200,
+        body: JSON.stringify(response.data)
+      };
+    }
+    
+    // Get specific workflow
+    if (action === 'get_workflow' && data.id) {
+      const response = await axios.get(`${N8N_HOST}/api/v1/workflows/${data.id}`, {
+        headers: { 'X-N8N-API-KEY': N8N_API_KEY }
+      });
+      return {
+        statusCode: 200,
+        body: JSON.stringify(response.data)
+      };
+    }
+    
+    // Execute workflow
+    if (action === 'execute_workflow' && data.id) {
+      const response = await axios.post(
+        `${N8N_HOST}/api/v1/workflows/${data.id}/execute`,
+        data.body || {},
+        { headers: { 'X-N8N-API-KEY': N8N_API_KEY } }
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify(response.data)
+      };
+    }
+    
+    // Default response
     return {
       statusCode: 200,
       body: JSON.stringify({
-        success: true,
-        message: 'Workflow creation endpoint ready',
-        workflow: request.workflow
+        message: 'n8n bridge ready',
+        available_actions: ['list_workflows', 'get_workflow', 'execute_workflow']
       })
     };
-  }
-  
-  if (request.action === 'list_workflows') {
+    
+  } catch (error) {
     return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        workflows: ['Email Automation', 'Data Sync', 'Report Generator']
-      })
+      statusCode: error.response?.status || 500,
+      body: JSON.stringify({ error: error.message })
     };
   }
-  
-  // Default response
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      message: 'Netlify Function Connected',
-      available_actions: ['create_workflow', 'list_workflows'],
-      timestamp: new Date().toISOString()
-    })
-  };
 };
